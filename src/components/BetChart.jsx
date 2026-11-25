@@ -1,104 +1,171 @@
-import { useEffect, useRef } from 'react'
-import { createChart, CandlestickSeries } from 'lightweight-charts'
+import { useEffect, useMemo, useRef } from 'react'
+import { AreaSeries, ColorType, createChart, CrosshairMode } from 'lightweight-charts'
 
 export default function BetChart({ bets }) {
   const containerRef = useRef(null)
   const chartRef = useRef(null)
   const seriesRef = useRef(null)
+  const zeroLineRef = useRef(null)
 
   useEffect(() => {
     if (!containerRef.current) return
 
     const chart = createChart(containerRef.current, {
-      height: 400,
-      layout: { 
-        background: { color: '#1e222d' }, 
-        textColor: '#d1d4dc',
-        fontFamily: 'Inter, sans-serif'
+      width: containerRef.current.clientWidth,
+      height: 340,
+      layout: {
+        background: { type: ColorType.Solid, color: '#1e222d' },
+        textColor: '#9ca3af',
+        fontFamily: 'Inter, sans-serif',
       },
       grid: {
-        vertLines: { color: '#2a2e39' },
-        horzLines: { color: '#2a2e39' },
+        vertLines: { color: '#2a2e39', style: 1 },
+        horzLines: { color: '#2a2e39', style: 1 },
       },
-      timeScale: { borderColor: '#2a2e39', timeVisible: true },
-      rightPriceScale: { borderColor: '#2a2e39' },
+      rightPriceScale: {
+        borderColor: '#2a2e39',
+        scaleMargins: { top: 0.15, bottom: 0.15 },
+      },
+      timeScale: {
+        borderColor: '#2a2e39',
+        timeVisible: false,
+      },
       crosshair: {
-        mode: 1,
-        vertLine: { color: '#758696', labelBackgroundColor: '#2a2e39' },
-        horzLine: { color: '#758696', labelBackgroundColor: '#2a2e39' },
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: '#4b5563',
+          width: 1,
+          style: 3,
+          labelBackgroundColor: '#2a2e39',
+        },
+        horzLine: {
+          color: '#4b5563',
+          width: 1,
+          style: 3,
+          labelBackgroundColor: '#2a2e39',
+        },
       },
     })
 
-    // On utilise CandlestickSeries pour les chandeliers japonais
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#089981',       
-      downColor: '#f23645',     
-      borderVisible: false,
-      wickUpColor: '#089981',
-      wickDownColor: '#f23645',
+    const series = chart.addSeries(AreaSeries, {
+      lineColor: '#089981',
+      topColor: 'rgba(8, 153, 129, 0.28)',
+      bottomColor: 'rgba(8, 153, 129, 0.0)',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: true,
+    })
+
+    const zeroLine = series.createPriceLine({
+      price: 0,
+      color: '#6b7280',
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: 'Break-even',
     })
 
     chartRef.current = chart
     seriesRef.current = series
+    zeroLineRef.current = zeroLine
 
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth })
-      }
+    const resizeObserver = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect
+      if (!rect || !chartRef.current) return
+      if (rect.width <= 0 || rect.height <= 0) return
+
+      chartRef.current.applyOptions({
+        width: Math.floor(rect.width),
+        height: Math.floor(rect.height),
+      })
+      chartRef.current.timeScale().fitContent()
     })
-    ro.observe(containerRef.current)
+
+    resizeObserver.observe(containerRef.current)
 
     return () => {
-      ro.disconnect()
+      resizeObserver.disconnect()
       chart.remove()
+      chartRef.current = null
+      seriesRef.current = null
+      zeroLineRef.current = null
     }
   }, [])
+
+  const { points, finalPnl } = useMemo(() => {
+    const dailyProfits = new Map()
+
+    bets
+      .filter((bet) => bet.result !== 'pending')
+      .forEach((bet) => {
+        const rawDate = String(bet.bet_date || '')
+        let dayKey = rawDate.slice(0, 10)
+
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+          const parsed = new Date(rawDate)
+          if (Number.isNaN(parsed.getTime())) return
+          dayKey = parsed.toISOString().slice(0, 10)
+        }
+
+        const timestamp = Date.parse(`${dayKey}T00:00:00Z`)
+        if (Number.isNaN(timestamp)) return
+
+        const day = Math.floor(timestamp / 1000)
+        const profit = Number(bet.profit) || 0
+        dailyProfits.set(day, (dailyProfits.get(day) || 0) + profit)
+      })
+
+    const sortedEntries = Array.from(dailyProfits.entries()).sort(
+      ([a], [b]) => a - b
+    )
+
+    const cumulative = sortedEntries.reduce(
+      (acc, [time, dailyProfit]) => {
+        const total = acc.total + dailyProfit
+        return {
+          total,
+          points: [
+            ...acc.points,
+            { time, value: Number(total.toFixed(2)) },
+          ],
+        }
+      },
+      { total: 0, points: [] },
+    )
+
+    return {
+      points: cumulative.points,
+      finalPnl: cumulative.total,
+    }
+  }, [bets])
 
   useEffect(() => {
     if (!seriesRef.current || !chartRef.current) return
 
-    const dailyData = {}
-    bets.forEach(b => {
-      if (b.result === 'pending') return
-      const d = b.bet_date
-      if (!dailyData[d]) {
-        dailyData[d] = { profit: 0 }
-      }
-      dailyData[d].profit += Number(b.profit)
+    const isPositive = finalPnl >= 0
+    seriesRef.current.applyOptions({
+      lineColor: isPositive ? '#089981' : '#f23645',
+      topColor: isPositive
+        ? 'rgba(8, 153, 129, 0.28)'
+        : 'rgba(242, 54, 69, 0.28)',
+      bottomColor: isPositive
+        ? 'rgba(8, 153, 129, 0.0)'
+        : 'rgba(242, 54, 69, 0.0)',
     })
 
-    let currentCapital = 1000 // Capital de départ fictif
-    let prevCapital = currentCapital
-    const candleData = []
-
-    Object.keys(dailyData).sort().forEach(date => {
-      prevCapital = currentCapital
-      currentCapital += dailyData[date].profit
-      
-      const open = prevCapital
-      const close = currentCapital
-      const high = Math.max(open, close) + Math.random() * 5
-      const low = Math.min(open, close) - Math.random() * 5
-
-      // On s'assure que toutes les valeurs sont bien des nombres
-      candleData.push({
-        time: date, 
-        open: Number(open.toFixed(2)),
-        high: Number(high.toFixed(2)),
-        low: Number(low.toFixed(2)),
-        close: Number(close.toFixed(2)),
-      })
-    })
-
-    if (candleData.length > 0) {
-      seriesRef.current.setData(candleData)
-      chartRef.current.timeScale().fitContent()
-    } else {
-      seriesRef.current.setData([]) // Vide le graphique s'il n'y a pas de données
-    }
-  }, [bets])
+    seriesRef.current.setData(points)
+    chartRef.current.timeScale().fitContent()
+  }, [points, finalPnl])
 
   return (
-    <div ref={containerRef} className="w-full" />
+    <div className="relative w-full min-w-0" style={{ height: 340 }}>
+      {!points.length && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-xs text-gray-500">
+          Aucun pari réglé pour tracer la courbe P&amp;L.
+        </div>
+      )}
+      <div ref={containerRef} className="h-full w-full" />
+    </div>
   )
 }

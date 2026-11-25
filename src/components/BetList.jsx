@@ -1,53 +1,141 @@
 import { Trash2 } from 'lucide-react'
+import TeamBadge from './TeamBadge'
+import { splitMatchName } from '../data/teams'
 
-export default function BetList({ bets, onDelete, loading }) {
-  if (loading) return <div className="p-6 text-gray-400">Chargement...</div>
-  if (!bets.length) return <div className="p-6 text-gray-400 text-center">Aucun pari. Remplissez le formulaire à gauche.</div>
+const RESULT_LABELS = {
+  win: 'GAGNÉ',
+  loss: 'PERDU',
+  pending: 'ATTENTE',
+}
+
+const resultClass = (result) => {
+  if (result === 'win') return 'border-[#089981]/40 bg-[#089981]/20 text-[#089981]'
+  if (result === 'loss') return 'border-[#f23645]/40 bg-[#f23645]/20 text-[#f23645]'
+  return 'border-yellow-500/40 bg-yellow-500/20 text-yellow-500'
+}
+
+export default function BetList({ bets, onUpdateResult, onDelete, loading }) {
+  if (loading) {
+    return <div className="p-6 text-gray-400">Chargement...</div>
+  }
+
+  if (!bets.length) {
+    return (
+      <div className="p-6 text-center text-gray-400">
+        Aucun pari. Remplissez le formulaire à gauche.
+      </div>
+    )
+  }
 
   return (
-    <div className="bg-[#1e222d] border border-[#2a2e39] rounded-lg overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2a2e39]">
-        <h2 className="text-sm font-semibold text-white uppercase tracking-wider">Position / Historique</h2>
+    <div className="overflow-hidden rounded-lg border border-[#2a2e39] bg-[#1e222d]">
+      <div className="border-b border-[#2a2e39] px-4 py-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-white">
+          Position / Historique
+        </h2>
       </div>
+
       <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-gray-400 border-b border-[#2a2e39]">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-[#2a2e39] text-xs text-gray-400">
             <tr>
               <th className="px-4 py-3 font-normal">DATE</th>
-              <th className="px-4 py-3 font-normal">ACTIF</th>
-              <th className="px-4 py-3 font-normal text-right">MISE</th>
-              <th className="px-4 py-3 font-normal text-right">COTE</th>
-              <th className="px-4 py-3 font-normal text-center">STATUT</th>
-              <th className="px-4 py-3 font-normal text-right">P&L</th>
-              <th className="px-4 py-3"></th>
+              <th className="px-4 py-3 font-normal">MATCH</th>
+              <th className="px-4 py-3 text-right font-normal">MISE</th>
+              <th className="px-4 py-3 text-right font-normal">COTE</th>
+              <th className="px-4 py-3 text-center font-normal">STATUT</th>
+              <th className="px-4 py-3 text-right font-normal">P&amp;L</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
+
           <tbody className="divide-y divide-[#2a2e39]">
-            {[...bets].reverse().map(b => (
-              <tr key={b.id} className="hover:bg-[#2a2e39]/50 transition-colors">
-                <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">{b.bet_date}</td>
-                <td className="px-4 py-3 font-medium text-white">{b.match_name}</td>
-                <td className="px-4 py-3 text-right text-gray-300">{Number(b.stake).toFixed(2)}</td>
-                <td className="px-4 py-3 text-right text-gray-300">{b.odds}</td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    b.result === 'win' ? 'bg-[#089981]/20 text-[#089981]' : 
-                    b.result === 'loss' ? 'bg-[#f23645]/20 text-[#f23645]' : 
-                    'bg-yellow-500/20 text-yellow-500'
-                  }`}>
-                    {b.result === 'win' ? 'GAGNÉ' : b.result === 'loss' ? 'PERDU' : 'ATTENTE'}
-                  </span>
-                </td>
-                <td className={`px-4 py-3 text-right font-medium ${b.profit >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}`}>
-                  {b.result === 'pending' ? '—' : `${b.profit >= 0 ? '+' : ''}${Number(b.profit).toFixed(2)}`}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button onClick={() => onDelete(b.id)} className="text-gray-500 hover:text-[#f23645] transition-colors">
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {[...bets].reverse().map((bet) => {
+              const result = bet.result || 'pending'
+              const { team1, team2 } = splitMatchName(bet.match_name)
+              const profit = Number(bet.profit) || 0
+
+              return (
+                <tr
+                  key={bet.id}
+                  className="transition-colors hover:bg-[#2a2e39]/50"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-400">
+                    {bet.bet_date}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                      <TeamBadge
+                        name={team1}
+                        src={bet.team1_logo}
+                        className="h-6 w-6"
+                        lookup
+                      />
+                      <span className="font-medium text-white">
+                        {team1 || bet.match_name || '—'}
+                      </span>
+                      <span className="text-xs text-gray-500">vs</span>
+                      <TeamBadge
+                        name={team2}
+                        src={bet.team2_logo}
+                        className="h-6 w-6"
+                        lookup
+                      />
+                      <span className="font-medium text-white">
+                        {team2 || '—'}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {Number(bet.stake).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {bet.odds}
+                  </td>
+
+                  <td className="px-4 py-3 text-center">
+                    <select
+                      aria-label={`Statut du pari ${bet.match_name || bet.id}`}
+                      value={result}
+                      onChange={(event) =>
+                        onUpdateResult?.(bet, event.target.value)
+                      }
+                      className={`rounded border bg-[#131722] px-2 py-1 text-[11px] font-bold outline-none transition-colors ${resultClass(
+                        result,
+                      )}`}
+                    >
+                      <option value="pending">En attente</option>
+                      <option value="win">Gagné</option>
+                      <option value="loss">Perdu</option>
+                    </select>
+                    <span className="sr-only">{RESULT_LABELS[result]}</span>
+                  </td>
+
+                  <td
+                    className={`px-4 py-3 text-right font-medium ${
+                      profit >= 0 ? 'text-[#089981]' : 'text-[#f23645]'
+                    }`}
+                  >
+                    {result === 'pending'
+                      ? '—'
+                      : `${profit >= 0 ? '+' : ''}${profit.toFixed(2)}`}
+                  </td>
+
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onDelete(bet.id)}
+                      className="text-gray-500 transition-colors hover:text-[#f23645]"
+                      aria-label="Supprimer le pari"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
